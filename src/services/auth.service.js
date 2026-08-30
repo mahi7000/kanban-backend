@@ -20,7 +20,7 @@ const register = async (email, password, full_name) => {
   const { data, error } = await supabaseAdmin.auth.admin.createUser({
     email,
     password,
-    email_confirm: false, // Supabase sends a confirmation email automatically if email_confirm is enabled in project settings
+    email_confirm: true, // Confirm the email immediately so no verification email is required
     user_metadata: { full_name: full_name || '' },
   });
 

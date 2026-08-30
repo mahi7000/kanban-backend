@@ -30,7 +30,7 @@ const register = async (req, res) => {
       .catch((err) => logger.warn('Welcome email failed', { error: err.message }));
 
     return res.status(201).json(
-      apiResponse(true, { user: { id: user.id, email: user.email } }, 'Registration successful. Please verify your email.')
+      apiResponse(true, { user: { id: user.id, email: user.email } }, 'Registration successful.')
     );
   } catch (error) {
     logger.error('Register error', { error: error.message });
