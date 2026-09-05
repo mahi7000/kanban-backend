@@ -20,6 +20,13 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
  * @param {import('nodemailer').SendMailOptions} options
  */
 const send = async (options) => {
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    logger.warn(
+      `Email NOT sent to ${options.to}: EMAIL_USER/EMAIL_PASS not set. ` +
+        'Nodemailer is in dev (jsonTransport) mode; set SMTP env vars in production.'
+    );
+    return null;
+  }
   try {
     const info = await transporter.sendMail({ from: FROM_ADDRESS, ...options });
     logger.info('Email sent', { messageId: info.messageId, to: options.to });
