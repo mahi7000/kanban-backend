@@ -16,6 +16,10 @@ const transporter = nodemailer.createTransport({
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
+  // Fail fast so SMTP/network problems surface in logs instead of hanging silently
+  connectionTimeout: 10000,
+  greetingTimeout: 10000,
+  socketTimeout: 15000,
   // Graceful degradation: if email creds are missing, log a warning instead of crashing
   ...((!process.env.EMAIL_USER || !process.env.EMAIL_PASS) && {
     jsonTransport: true, // Logs email to stdout (useful in dev without real SMTP)
