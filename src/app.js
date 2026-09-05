@@ -103,16 +103,37 @@ app.get('/health', (req, res) => {
 // GET /api/health/email — live SMTP diagnostics (no secrets exposed)
 app.get('/api/health/email', async (req, res) => {
   const credsConfigured = !!(process.env.EMAIL_USER && process.env.EMAIL_PASS);
+  const resendConfigured = !!process.env.RESEND_API_KEY;
+  const sendgridConfigured = !!process.env.SENDGRID_API_KEY;
+  const brevoConfigured = !!process.env.BREVO_API_KEY;
+  const provider = resendConfigured
+    ? 'resend'
+    : sendgridConfigured
+      ? 'sendgrid'
+      : brevoConfigured
+        ? 'brevo'
+        : credsConfigured
+          ? 'smtp'
+          : 'none';
   const details = {
+    provider,
     credsConfigured,
-    transportMode: credsConfigured ? 'smtp' : 'jsonTransport (dev — emails NOT actually sent)',
+    resendConfigured,
+    sendgridConfigured,
+    brevoConfigured,
+    transportMode:
+      provider === 'resend' || provider === 'sendgrid' || provider === 'brevo'
+        ? `${provider} (HTTPS API)`
+        : credsConfigured
+          ? 'smtp'
+          : 'jsonTransport (dev — emails NOT actually sent)',
     host: process.env.EMAIL_HOST || 'smtp.gmail.com',
     port: process.env.EMAIL_PORT || '587',
     secure: process.env.EMAIL_PORT === '465',
     from: process.env.EMAIL_FROM || `"Kanban App" <${process.env.EMAIL_USER}>`,
     frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
   };
-  if (credsConfigured) {
+  if (credsConfigured && !resendConfigured && !sendgridConfigured && !brevoConfigured) {
     const started = Date.now();
     try {
       await transporter.verify();

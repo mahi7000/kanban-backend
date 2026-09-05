@@ -15,15 +15,128 @@ const FROM_ADDRESS = process.env.EMAIL_FROM || `"Kanban App" <${process.env.EMAI
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 
 /**
- * Internal helper — wraps transporter.sendMail with logging.
+ * Send via Resend HTTP API (preferred in production — works over HTTPS 443,
+ * unlike SMTP which cloud hosts like Render often cannot reach).
+ */
+const sendResend = async ({ from, to, subject, html, text }) => {
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ from, to: [to], subject, html, text }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(`Resend API error (${response.status}): ${JSON.stringify(data)}`);
+    }
+    logger.info('Email sent via Resend', { id: data.id, to });
+    return data;
+  } catch (error) {
+    logger.error('Failed to send email via Resend', { to, subject, error: error.message });
+    throw error;
+  }
+};
+
+/**
+ * Send via SendGrid HTTP API (no domain required — works over HTTPS 443).
+ */
+const parseFrom = (from) => {
+  const match = /^(.*?)\s*<([^>]+)>$/.exec(from);
+  if (match) {
+    return { name: match[1].replace(/"/g, '').trim() || undefined, email: match[2] };
+  }
+  return { email: from };
+};
+
+const sendSendGrid = async ({ from, to, subject, html, text }) => {
+  try {
+    const sender = parseFrom(from);
+    const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.SENDGRID_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        personalizations: [{ to: [{ email: to }] }],
+        from: sender,
+        subject,
+        content: [
+          { type: 'text/plain', value: text || '' },
+          { type: 'text/html', value: html || '' },
+        ],
+      }),
+    });
+    if (!response.ok) {
+      const data = await response.text();
+      throw new Error(`SendGrid API error (${response.status}): ${data}`);
+    }
+    logger.info('Email sent via SendGrid', { to, subject });
+    return { status: 'sent' };
+  } catch (error) {
+    logger.error('Failed to send email via SendGrid', { to, subject, error: error.message });
+    throw error;
+  }
+};
+
+/**
+ * Send via Brevo HTTP API (no domain required — works over HTTPS 443).
+ */
+const sendBrevo = async ({ from, to, subject, html, text }) => {
+  try {
+    const sender = parseFrom(from);
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': process.env.BREVO_API_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        sender,
+        to: [{ email: to }],
+        subject,
+        htmlContent: html || '',
+        textContent: text || '',
+      }),
+    });
+    if (!response.ok) {
+      const data = await response.text();
+      throw new Error(`Brevo API error (${response.status}): ${data}`);
+    }
+    const result = await response.json();
+    logger.info('Email sent via Brevo', { to, subject, messageId: result.messageId });
+    return { status: 'sent' };
+  } catch (error) {
+    logger.error('Failed to send email via Brevo', { to, subject, error: error.message });
+    throw error;
+  }
+};
+
+/**
+ * Internal helper — routes to the configured provider and wraps sending with logging.
  *
  * @param {import('nodemailer').SendMailOptions} options
  */
 const send = async (options) => {
+  // HTTPS API providers (work from any host, including Render)
+  if (process.env.RESEND_API_KEY) {
+    return sendResend({ from: FROM_ADDRESS, ...options });
+  }
+  if (process.env.SENDGRID_API_KEY) {
+    return sendSendGrid({ from: FROM_ADDRESS, ...options });
+  }
+  if (process.env.BREVO_API_KEY) {
+    return sendBrevo({ from: FROM_ADDRESS, ...options });
+  }
+
+  // Fallback: SMTP via Nodemailer
   if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
     logger.warn(
-      `Email NOT sent to ${options.to}: EMAIL_USER/EMAIL_PASS not set. ` +
-        'Nodemailer is in dev (jsonTransport) mode; set SMTP env vars in production.'
+      `Email NOT sent to ${options.to}: no email provider configured ` +
+        '(set RESEND_API_KEY, SENDGRID_API_KEY, or EMAIL_USER/EMAIL_PASS).'
     );
     return null;
   }
