@@ -23,7 +23,7 @@ const rateLimit = require('express-rate-limit');
 
 const logger = require('./utils/logger');
 const { apiResponse } = require('./utils/helpers');
-const { verifyEmailConnection } = require('./config/email');
+const { verifyEmailConnection, transporter } = require('./config/email');
 
 // Route modules
 const authRoutes = require('./routes/auth.routes');
@@ -98,6 +98,30 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
   });
+});
+
+// GET /api/health/email — live SMTP diagnostics (no secrets exposed)
+app.get('/api/health/email', async (req, res) => {
+  const credsConfigured = !!(process.env.EMAIL_USER && process.env.EMAIL_PASS);
+  const details = {
+    credsConfigured,
+    transportMode: credsConfigured ? 'smtp' : 'jsonTransport (dev — emails NOT actually sent)',
+    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+    port: process.env.EMAIL_PORT || '587',
+    secure: process.env.EMAIL_PORT === '465',
+    from: process.env.EMAIL_FROM || `"Kanban App" <${process.env.EMAIL_USER}>`,
+    frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
+  };
+  if (credsConfigured) {
+    const started = Date.now();
+    try {
+      await transporter.verify();
+      details.verify = { status: 'ok', tookMs: Date.now() - started };
+    } catch (error) {
+      details.verify = { status: 'error', message: error.message, tookMs: Date.now() - started };
+    }
+  }
+  res.status(200).json(apiResponse(true, details, 'Email configuration diagnostics'));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
