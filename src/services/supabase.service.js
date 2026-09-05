@@ -137,12 +137,38 @@ const deleteProject = async (projectId) => {
 const getProjectMembers = async (projectId) => {
   const { data, error } = await supabaseAdmin
     .from('project_members')
-    .select('*, user:user_id(id, email, raw_user_meta_data)')
+    .select('*')
     .eq('project_id', projectId)
     .order('joined_at', { ascending: true });
 
   if (error) throw error;
-  return data;
+
+  const members = data || [];
+  if (members.length === 0) return members;
+
+  // Fetch user profiles through the admin API (service role).
+  // Do not attempt a PostgREST embed on auth.users: there is no FK
+  // relationship declared between project_members.user_id and auth.users,
+  // so `select('*, user:user_id(...)')` fails in the schema cache.
+  const { data: usersData, error: usersError } = await supabaseAdmin.auth.admin.listUsers({
+    page: 1,
+    perPage: 1000,
+  });
+  if (usersError) throw usersError;
+
+  const userById = new Map(
+    (usersData?.users || []).map((u) => [
+      u.id,
+      {
+        id: u.id,
+        email: u.email,
+        full_name: u.user_metadata?.full_name || u.user_metadata?.name || '',
+        raw_user_meta_data: u.user_metadata || {},
+      },
+    ])
+  );
+
+  return members.map((m) => ({ ...m, user: userById.get(m.user_id) || null }));
 };
 
 const getMemberRecord = async (projectId, userId) => {
